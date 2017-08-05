@@ -6,11 +6,11 @@
 
 #include<Arduino.h>
 
-#if defined(KINETISK) || defined(KINETISL)	// Teensy 3.X and LC
+//#if defined(KINETISK) || defined(KINETISL)	// Teensy 3.X and LC
 #include <i2c_t3.h>		
-#else
-#include <Wire.h>	// for AVR I2C library
-#endif
+//#else
+//#include <Wire.h>	// for AVR I2C library
+//#endif
 
 
 //---------------------------< D E F I N E S >----------------------------------------------------------------
@@ -125,6 +125,8 @@ class Systronix_M24C32
 		uint8_t		page_read (void);					// read n number of bytes beginning at address
 
 		uint8_t		ping_eeprom (void);
+		uint8_t		ping_eeprom_timed (uint32_t t_wait = 5);	// call with t_wait for M32C32-X devices set to 10
+
 	private:
 	};
 	

@@ -241,7 +241,7 @@ void Systronix_M24C32::adv_addr16 (void)
 
 //---------------------------< P I N G _ E E P R O M >--------------------------------------------------------
 //
-// send slave address to eeprom to determine 1) if the device exists, 2) if ready to accept another write 
+// send slave address to eeprom to determine if the device exists or is busy.
 //
 
 uint8_t Systronix_M24C32::ping_eeprom (void)
@@ -252,11 +252,35 @@ uint8_t Systronix_M24C32::ping_eeprom (void)
 		return ABSENT;
 
 	_wire.beginTransmission(_base);							// init tx buff for xmit to slave at _base address
-	ret_val = _wire.endTransmission();						// xmit memory address and data byte
+	ret_val = _wire.endTransmission();						// xmit slave address
 	if (SUCCESS != ret_val)
-		return FAIL;										// calling function decides what to do with the error
+		return FAIL;										// device did not ack the address
 
-	return SUCCESS;
+	return SUCCESS;											// device acked the address
+	}
+
+
+//---------------------------< P I N G _ E E P R O M _ T I M E D >--------------------------------------------
+//
+// repeatedly send slave address to eeprom to determine when the device becomes unbusy. Timeout and return FAIL
+// if device still busy after twait mS; default is 5mS; M24C32-X parts (1.6V-5.5V tW is 10mS max)
+//
+
+uint8_t Systronix_M24C32::ping_eeprom_timed (uint32_t t_wait)
+	{
+	uint8_t		ret_val;
+//	uint32_t	start_time = millis ();
+	uint32_t	end_time = millis () + t_wait;
+	
+	while (millis () <= end_time)
+		{													// spin
+		_wire.beginTransmission(_base);						// init tx buff for xmit to slave at _base address
+		ret_val = _wire.endTransmission();					// xmit slave address
+		if (SUCCESS == ret_val)
+			return SUCCESS;
+		}
+
+	return FAIL;											// device did not ack the address within the allotted time
 	}
 
 
@@ -285,6 +309,12 @@ uint8_t Systronix_M24C32::byte_write (void)
 	
 	if (!error.exists)										// exit immediately if device does not exist
 		return ABSENT;
+
+	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
+		{													// it didn't
+		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		return FAIL;										// calling function decides what to do with the error
+		}
 
 	_wire.beginTransmission(_base);							// init tx buff for xmit to slave at _base address
 	control.bytes_written = _wire.write (control.addr.as_array, 2);	// put the memory address in the tx buffer
@@ -368,6 +398,12 @@ uint8_t Systronix_M24C32::page_write (void)
 	if (!error.exists)										// exit immediately if device does not exist
 		return ABSENT;
 	
+	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
+		{													// it didn't
+		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		return FAIL;										// calling function decides what to do with the error
+		}
+
 	_wire.beginTransmission(_base);							// init tx buff for xmit to slave at _base address
 	control.bytes_written = _wire.write (control.addr.as_array, 2);					// put the memory address in the tx buffer
 	control.bytes_written += _wire.write (control.wr_buf_ptr, control.rd_wr_len);	// copy source to wire tx buffer data
@@ -395,6 +431,8 @@ uint8_t Systronix_M24C32::page_write (void)
 // Read a byte from the eep's current address pointer; the eep's address pointer is bumped to the next
 // location after the read.  We presume that the eep's address pointer was previously set with byte_read().
 // This function attempts to track the eep's internal pointer by incrementing control.addr.
+//
+// During the internal write cycle, SDA is disabled; the device will ack a slave address but does not respond to any requests.
 //
 // To use this function:
 //		1. perform some operation that correctly sets the eep's internal address pointer
@@ -441,7 +479,13 @@ uint8_t Systronix_M24C32::byte_read (void)
 
 	if (!error.exists)										// exit immediately if device does not exist
 		return ABSENT;
-	
+
+	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
+		{													// it didn't
+		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		return FAIL;										// calling function decides what to do with the error
+		}
+
 	_wire.beginTransmission(_base);							// init tx buff for xmit to slave at _base address
 	control.bytes_written = _wire.write (control.addr.as_array, 2);	// put the memory address in the tx buffer
 	if (2 != control.bytes_written)							// did we get correct number of bytes into the i2c_t3 tx buf?
@@ -450,7 +494,7 @@ uint8_t Systronix_M24C32::byte_read (void)
 		return FAIL;										// calling function decides what to do with the error
 		}
 
-	ret_val = _wire.endTransmission();						// xmit memory address
+	ret_val = _wire.endTransmission();						// xmit memory address; will fail if device is busy
 	
 	if (SUCCESS != ret_val)
 		{
@@ -522,10 +566,16 @@ uint8_t Systronix_M24C32::page_read (void)
 	uint8_t		ret_val;
 	size_t 		i;
 	uint8_t*	ptr = control.rd_buf_ptr;					// a copy so we don't disturb the original
-	
+
 	if (!error.exists)										// exit immediately if device does not exist
 		return ABSENT;
-	
+
+	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
+		{													// it didn't
+		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		return FAIL;										// calling function decides what to do with the error
+		}
+
 	_wire.beginTransmission(_base);							// init tx buff for xmit to slave at _base address
 	control.bytes_written = _wire.write (control.addr.as_array, 2);	// put the memory address in the tx buffer
 	if (2 != control.bytes_written)							// did we get correct number of bytes into the i2c_t3 tx buf?
