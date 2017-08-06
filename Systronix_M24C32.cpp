@@ -439,6 +439,8 @@ uint8_t Systronix_M24C32::page_write (void)
 //		2. call this function
 //		3. retrieve the byte read from control.rd_byte
 //
+// This function does not use ping_eeprom_timed () because other functions call this function and the ping in
+// middle of all of that confuses the eeprom or perhaps the i2c_t3 library
 
 uint8_t Systronix_M24C32::current_address_read (void)
 	{
