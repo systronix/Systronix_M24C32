@@ -83,8 +83,8 @@ elapsedMillis waiting;
 
 #define		PAGE_SIZE	32
 
-#define		MUX_PAGE_ADDR	0
-#define		SENSOR1_PAGE_ADDR	MUX_PAGE_ADDR+PAGE_SIZE
+#define		ASSY_PAGE_ADDR		0
+#define		SENSOR1_PAGE_ADDR	ASSY_PAGE_ADDR+PAGE_SIZE
 #define		SENSOR2_PAGE_ADDR	SENSOR1_PAGE_ADDR+PAGE_SIZE
 
 
@@ -861,7 +861,7 @@ void loop (void)
 				}
 			}
 
-		eep.set_addr16 (MUX_PAGE_ADDR);							// point to page 0, address 0
+		eep.set_addr16 (ASSY_PAGE_ADDR);						// point to page 0, address 0
 		eep.control.rd_wr_len = PAGE_SIZE;						// set page size
 		eep.control.wr_buf_ptr = (uint8_t*)assy_page.as_array;	// point to source buffer
 		eep.page_write ();										// write the page
