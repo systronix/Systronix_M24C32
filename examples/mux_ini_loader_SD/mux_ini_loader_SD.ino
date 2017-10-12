@@ -22,7 +22,8 @@
 //			"HDC1080"
 //			"MS8607PT"		- the pressure and temperature sensors (i2c address 0x76)
 //			"MS8607H"		- the relative humidity sensor (i2c address 0x40)
-//		0x0030:				sensor i2c address; one byte:
+//		0x0030:				[not supported on MUX7 because mux-mounted sensors at port 7 are always at fixed addresses - reserved for future use]
+//							sensor i2c address; one byte:
 //								bits 6..0: the i2c address
 //								bit 7:
 //									when 0, the value in bits 6..0 is a base address modified by the assembly's address jumpers
@@ -80,12 +81,14 @@ elapsedMillis waiting;
 #define		ASSEMBLY	0xA0
 #define		SENSOR1		0xA1
 #define		SENSOR2		0xA2
+#define		SENSOR3		0xA3
 
 #define		PAGE_SIZE	32
 
 #define		ASSY_PAGE_ADDR		0
 #define		SENSOR1_PAGE_ADDR	ASSY_PAGE_ADDR+PAGE_SIZE
 #define		SENSOR2_PAGE_ADDR	SENSOR1_PAGE_ADDR+PAGE_SIZE
+#define		SENSOR3_PAGE_ADDR	SENSOR2_PAGE_ADDR+PAGE_SIZE
 
 
 //---------------------------< P R O T O T Y P E S >----------------------------------------------------------
@@ -124,7 +127,7 @@ union
 		uint8_t		unused[15];			// so that the struct totals 32 bytes
 		} as_struct;
 	uint8_t			as_array[32];
-	} sensor1_page, sensor2_page;
+	} sensor1_page, sensor2_page, sensor3_page;
 
 
 //---------------------------< S T O P W A T C H >------------------------------------------------------------
@@ -241,6 +244,8 @@ uint8_t normalize_kv_pair (char* key_ptr)
 				return SENSOR1;
 			else if (strstr (key_ptr, "[sensor 2]"))
 				return SENSOR2;
+			else if (strstr (key_ptr, "[sensor 3]"))
+				return SENSOR3;
 			}
 		return INI_ERROR;					// missing assignment operator or just junk text
 		}
@@ -348,7 +353,7 @@ uint8_t iso_date_get (char *value_ptr, time_t* manuf_date_ptr)
 	}
 
 
-char* valid_type_str [] = {(char*)"MUX7", (char*)"TMP275", (char*)"HDC1080"};	// for type keyword
+char* valid_type_str [] = {(char*)"MUX7", (char*)"TMP275", (char*)"HDC1080", (char*)"MS8607PT", (char*)"MS8607H"};	// for type keyword
 char* valid_yes_no_str [] = {(char*)"YES", (char*)"NO"};	// for absolute keyword
 
 //---------------------------< C H E C K _ I N I _ A S S E M B L Y >------------------------------------------
@@ -472,7 +477,7 @@ void check_ini_sensor (char* key_ptr, char index)
 			{
 			settings.str_to_upper (value_ptr);
 			
-			for (uint8_t i=0; i<3; i++)
+			for (uint8_t i=0; i<5; i++)
 				{
 				if (!strcmp (value_ptr, valid_type_str[i]))
 					{
@@ -481,14 +486,19 @@ void check_ini_sensor (char* key_ptr, char index)
 						memset (sensor1_page.as_struct.sensor_type, '\0', 16);		// zero-fill first
 						strcpy (sensor1_page.as_struct.sensor_type, value_ptr);		// then copy type to it
 						}
-					else	// if not 1, must be 2
+					else if ('2' == index)
+						{
+						memset (sensor2_page.as_struct.sensor_type, '\0', 16);		// zero-fill first
+						strcpy (sensor2_page.as_struct.sensor_type, value_ptr);		// then copy type to it
+						}
+					else	// if not 1 or 2, must be 2
 						{
 						memset (sensor2_page.as_struct.sensor_type, '\0', 16);		// zero-fill first
 						strcpy (sensor2_page.as_struct.sensor_type, value_ptr);		// then copy type to it
 						}
 					break;
 					}
-				if (2 <= i)
+				if (4 <= i)
 					settings.err_msg ((char *)"unknown type");
 				}
 			}
@@ -504,9 +514,20 @@ void check_ini_sensor (char* key_ptr, char index)
 			if (isdigit (value_ptr[0]) && isxdigit (value_ptr[1]) && ('\0' == value_ptr[2]))	// value_ptr[0] must not be hex digit A-F
 				{
 				if ('1' == index)		// TODO: there must be a better way to do this
+					{
+					sensor1_page.as_struct.sensor_addr &= 0x80;									// clear but preserve fixed bit if set
 					sensor1_page.as_struct.sensor_addr |= ((uint8_t)strtol (value_ptr, NULL, 16)) & 0x7F;
-				else	// if not 1, must be 2
+					}
+				else if ('2' == index)
+					{
+					sensor2_page.as_struct.sensor_addr &= 0x80;									// clear but preserve fixed bit if set
 					sensor2_page.as_struct.sensor_addr |= ((uint8_t)strtol (value_ptr, NULL, 16)) & 0x7F;
+					}
+				else					// if not 1 or 2, must be 3
+					{					// for MUX7, sensor3 used only when MS8607 installed
+					sensor3_page.as_struct.sensor_addr &= 0x80;									// clear but preserve fixed bit if set
+					sensor3_page.as_struct.sensor_addr |= ((uint8_t)strtol (value_ptr, NULL, 16)) & 0x7F;
+					}
 				}
 			else
 				settings.err_msg ((char *)"invalid sensor address");
@@ -520,16 +541,26 @@ void check_ini_sensor (char* key_ptr, char index)
 			settings.err_msg ((char *)"invalid fixed key index");
 		else
 			{
-			settings.str_to_upper (value_ptr);
-			if (!strcmp (value_ptr, "NO"))
+			if (!strcmp (assy_page.as_struct.assembly_type, (char*)"MUX7"))		// MUX7 on-board sensors are always at fixed addresses
 				{
-				if ('1' == index)		// TODO: there must be a better way to do this
-					sensor1_page.as_struct.sensor_addr |= 0x80;		// not an absolute address so set MSB
-				else	// if not 1, must be 2
-					sensor2_page.as_struct.sensor_addr |= 0x80;		// not an absolute address so set MSB
+				Serial.printf ("\twarning: %s ignored\n", key_ptr);				// MUX7 on-board sensors always at fixed addresses
+				warn_cnt++;
 				}
-			else if (strcmp (value_ptr, "YES"))					// does not equal "YES"
-				settings.err_msg ((char *)"invalid fixed setting");
+			else
+				{
+				settings.str_to_upper (value_ptr);
+				if (!strcmp (value_ptr, "NO"))
+					{
+					if ('1' == index)		// TODO: there must be a better way to do this
+						sensor1_page.as_struct.sensor_addr |= 0x80;		// not an absolute address so set MSB
+					else if ('2' == index)
+						sensor2_page.as_struct.sensor_addr |= 0x80;		// not an absolute address so set MSB
+					else					// if not 1 or 2, must be 3; for MUX7, sensor3 used only when MS8607 installed
+						sensor3_page.as_struct.sensor_addr |= 0x80;		// not an absolute address so set MSB
+					}
+				else if (strcmp (value_ptr, "YES"))					// does not equal "YES"
+					settings.err_msg ((char *)"invalid fixed setting");
+				}
 			}
 		}
 	else
@@ -807,6 +838,11 @@ void loop (void)
 			Serial.printf ("%d: %s\n", settings.line_num, ln_buf);
 			check_ini_sensor (ln_buf, '2');
 			}
+		else if (SENSOR3 == heading)
+			{
+			Serial.printf ("%d: %s\n", settings.line_num, ln_buf);
+			check_ini_sensor (ln_buf, '3');
+			}
 		}
 	
 	if (!(*assy_page.as_struct.assembly_type))
@@ -818,6 +854,12 @@ void loop (void)
 	if ((*sensor2_page.as_struct.sensor_type) && (!(*sensor1_page.as_struct.sensor_type)))
 		{
 		Serial.printf ("error: missing [sensor 1] definition\n");
+		total_errs++;
+		}
+
+	if ((*sensor3_page.as_struct.sensor_type) && (!(*sensor2_page.as_struct.sensor_type)))
+		{
+		Serial.printf ("error: missing [sensor 2] definition\n");
 		total_errs++;
 		}
 
@@ -925,6 +967,22 @@ void loop (void)
 //			eep.current_address_read();							// read
 //			Serial.printf ("%.02X: 0x%.2X\n", i+SENSOR2_PAGE_ADDR, eep.control.rd_byte);	// display
 //			}
+
+		if (*sensor3_page.as_struct.sensor_type)
+			{
+			eep.set_addr16 (SENSOR3_PAGE_ADDR);						// point to page 1, address 0
+			eep.control.rd_wr_len = PAGE_SIZE;						// set page size
+			eep.control.wr_buf_ptr = (uint8_t*)sensor3_page.as_array;	// point to source buffer
+			eep.page_write ();										// write the page
+			}
+		else
+			{
+			memset (sensor3_page.as_array, 0xFF, PAGE_SIZE);		// make sure this page is erased
+			eep.set_addr16 (SENSOR3_PAGE_ADDR);						// point to page 1, address 0
+			eep.control.rd_wr_len = PAGE_SIZE;						// set page size
+			eep.control.wr_buf_ptr = (uint8_t*)sensor3_page.as_array;	// point to source buffer
+			eep.page_write ();										// write the page
+			}
 
 		Serial.printf ("mux[0] eeprom write complete\n");
 		}
