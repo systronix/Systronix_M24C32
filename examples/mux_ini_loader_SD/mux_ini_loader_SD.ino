@@ -3,15 +3,17 @@
 //
 // This code writes eeprom images to the mux eeprom
 //
+// elements in these definitions must be aligned to their natural boundaries: uint8_t on byte addresses,
+// uint16_t at address evenly divisible by 2, time_t and uint32_t on addresses evenly divisible by 4
 // page 0:	information about the assembly
 //		0x0000 - 0x000F:	assembly name; 16 characters null filled; known assemblies are:
 //			"TMP275"
 //			"MUX7"			'MUX7' to distinguish from a mux that does not have on-board sensors at port 7
-//		0x0010 - 0x0011:	assembly revision; two byte little endian; MM.mm in the form 0xMMmm
-//		0x0010: mm
-//		0x0011: MM
-//		0x0012 - 0x0015:	assembly manufacture date; four byte time_t little endian
-//		0x0016 - 0x0019:	assembly service date; four byte time_t little endian; not part of ini file; how set? when set?
+//		0x0010 - 0x0013:	assembly manufacture date; four byte time_t little endian
+//		0x0014 - 0x0017:	assembly service date; four byte time_t little endian; not part of ini file; how set? when set?
+//		0x0018 - 0x0019:	assembly revision; two byte little endian; MM.mm in the form 0xMMmm
+//		0x0018: mm
+//		0x0019: MM
 //		0x001A		   :	number of ports installed (MUX only)
 //		0x001B - 0x001F:	undefined; 5 bytes (MUX only)
 //		0x001A - 0x001F:	undefined; 6 bytes (TMP275 only)
@@ -90,6 +92,7 @@ elapsedMillis waiting;
 #define		SENSOR2_PAGE_ADDR	SENSOR1_PAGE_ADDR+PAGE_SIZE
 #define		SENSOR3_PAGE_ADDR	SENSOR2_PAGE_ADDR+PAGE_SIZE
 
+//#define		DEBUG_OUTPUT
 
 //---------------------------< P R O T O T Y P E S >----------------------------------------------------------
 
@@ -104,14 +107,17 @@ char		rx_buf [8192];
 char		out_buf [8192];
 char		ln_buf [256];
 
+// elements in these unions and structs must be aligned to their natural boundaries: uint8_t on byte addresses,
+// uint16_t at address evenly divisible by 2, time_t and uint32_t on addresses evenly divisible by 4
+
 union
 	{
 	struct mux_settings
 		{
 		char		assembly_type[16];
-		uint16_t	assembly_revision;
 		time_t		manufacture_date;
 		time_t		service_date;		// not part of ini file; how set? when set?
+		uint16_t	assembly_revision;
 		uint8_t		ports;
 		uint8_t		unused[5];			// so that the struct totals 32 bytes
 		} as_struct;
@@ -908,14 +914,16 @@ void loop (void)
 		eep.control.wr_buf_ptr = (uint8_t*)assy_page.as_array;	// point to source buffer
 		eep.page_write ();										// write the page
 
-//		eep.set_addr16 (MUX_PAGE_ADDR);							// point to page 0, address 0
-//		eep.byte_read();										// read a byte before we can use current_address_read
-//		Serial.printf ("0: 0x%.2X\n", eep.control.rd_byte);		// display
-//		for (uint8_t i=1; i<PAGE_SIZE; i++)						// now read the other 31 bytes of the page
-//			{
-//			eep.current_address_read();							// read
-//			Serial.printf ("%.02X: 0x%.2X\n", i, eep.control.rd_byte);	// display
-//			}
+#ifdef DEBUG_OUTPUT
+		eep.set_addr16 (ASSY_PAGE_ADDR);							// point to page 0, address 0
+		eep.byte_read();										// read a byte before we can use current_address_read
+		Serial.printf ("0: 0x%.2X / %c\n", eep.control.rd_byte, eep.control.rd_byte);		// display
+		for (uint8_t i=1; i<PAGE_SIZE; i++)						// now read the other 31 bytes of the page
+			{
+			eep.current_address_read();							// read
+			Serial.printf ("%.02X: 0x%.2X / %c\n", i, eep.control.rd_byte, eep.control.rd_byte);	// display
+			}
+#endif
 
 		if (*sensor1_page.as_struct.sensor_type)
 			{
@@ -933,15 +941,16 @@ void loop (void)
 			eep.page_write ();										// write the page
 			}
 
-
-//		eep.set_addr16 (SENSOR1_PAGE_ADDR);									// point to page 1, address 0
-//		eep.byte_read();										// read a byte before we can use current_address_read
-//		Serial.printf ("%.02X: 0x%.2X\n", SENSOR1_PAGE_ADDR, eep.control.rd_byte);		// display
-//		for (uint8_t i=1; i<=31; i++)							// now read the other 31 bytes of the page
-//			{
-//			eep.current_address_read();							// read
-//			Serial.printf ("%.02X: 0x%.2X\n", i+PAGE_SIZE, eep.control.rd_byte);	// display
-//			}
+#ifdef DEBUG_OUTPUT
+		eep.set_addr16 (SENSOR1_PAGE_ADDR);									// point to page 1, address 0
+		eep.byte_read();										// read a byte before we can use current_address_read
+		Serial.printf ("%.02X: 0x%.2X / %c\n", SENSOR1_PAGE_ADDR, eep.control.rd_byte, eep.control.rd_byte);		// display
+		for (uint8_t i=1; i<=31; i++)							// now read the other 31 bytes of the page
+			{
+			eep.current_address_read();							// read
+			Serial.printf ("%.02X: 0x%.2X / %c\n", i+PAGE_SIZE, eep.control.rd_byte, eep.control.rd_byte);	// display
+			}
+#endif
 
 		if (*sensor2_page.as_struct.sensor_type)
 			{
@@ -959,14 +968,16 @@ void loop (void)
 			eep.page_write ();										// write the page
 			}
 
-//		eep.set_addr16 (SENSOR2_PAGE_ADDR);									// point to page 1, address 0
-//		eep.byte_read();										// read a byte before we can use current_address_read
-//		Serial.printf ("%.02X: 0x%.2X\n", SENSOR2_PAGE_ADDR, eep.control.rd_byte);		// display
-//		for (uint8_t i=1; i<=31; i++)							// now read the other 31 bytes of the page
-//			{
-//			eep.current_address_read();							// read
-//			Serial.printf ("%.02X: 0x%.2X\n", i+SENSOR2_PAGE_ADDR, eep.control.rd_byte);	// display
-//			}
+#ifdef DEBUG_OUTPUT
+		eep.set_addr16 (SENSOR2_PAGE_ADDR);									// point to page 1, address 0
+		eep.byte_read();										// read a byte before we can use current_address_read
+		Serial.printf ("%.02X: 0x%.2X / %c\n", SENSOR2_PAGE_ADDR, eep.control.rd_byte, eep.control.rd_byte);		// display
+		for (uint8_t i=1; i<=31; i++)							// now read the other 31 bytes of the page
+			{
+			eep.current_address_read();							// read
+			Serial.printf ("%.02X: 0x%.2X / %c\n", i+SENSOR2_PAGE_ADDR, eep.control.rd_byte, eep.control.rd_byte);	// display
+			}
+#endif
 
 		if (*sensor3_page.as_struct.sensor_type)
 			{
@@ -984,8 +995,20 @@ void loop (void)
 			eep.page_write ();										// write the page
 			}
 
+#ifdef DEBUG_OUTPUT
+		eep.set_addr16 (SENSOR3_PAGE_ADDR);									// point to page 1, address 0
+		eep.byte_read();										// read a byte before we can use current_address_read
+		Serial.printf ("%.02X: 0x%.2X / %c\n", SENSOR3_PAGE_ADDR, eep.control.rd_byte, eep.control.rd_byte);		// display
+		for (uint8_t i=1; i<=31; i++)							// now read the other 31 bytes of the page
+			{
+			eep.current_address_read();							// read
+			Serial.printf ("%.02X: 0x%.2X / %c\n", SENSOR3_PAGE_ADDR, eep.control.rd_byte, eep.control.rd_byte);	// display
+			}
+#endif
+
 		Serial.printf ("mux[0] eeprom write complete\n");
 		}
+
 
 	Serial.printf ("\r\nloader stopped; reset to restart\r\n");		// give up and enter an endless
 
