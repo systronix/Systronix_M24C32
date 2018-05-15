@@ -35,7 +35,7 @@ uint8_t Systronix_M24C32::setup (uint8_t base, i2c_t3 wire, char* name)
 	{
 	if ((EEP_BASE_MIN > base) || (EEP_BASE_MAX < base))
 		{
-		tally_transaction (SILLY_PROGRAMMER);
+		i2c_common.tally_transaction (SILLY_PROGRAMMER, &error);
 		return FAIL;
 		}
 
@@ -100,67 +100,6 @@ uint8_t Systronix_M24C32::init (void)
 	}
 
 
-//---------------------------< T A L L Y _ E R R O R S >------------------------------------------------------
-//
-// Here we tally errors.  This does not answer the 'what to do in the event of these errors' question; it just
-// counts them.
-//
-
-void Systronix_M24C32::tally_transaction (uint8_t value)
-	{
-	if (value && (error.total_error_count < UINT64_MAX))
-		error.total_error_count++; 			// every time here incr total error count
-
-	error.error_val = value;
-
-	switch (value)
-		{
-		case SUCCESS:
-			if (error.successful_count < UINT64_MAX)
-				error.successful_count++;
-			break;
-		case 1:								// i2c_t3 and Wire: data too long from endTransmission() (rx/tx buffers are 259 bytes - slave addr + 2 cmd bytes + 256 data)
-			error.data_len_error_count++;
-			break;
-#if defined I2C_T3_H
-		case I2C_TIMEOUT:
-			error.timeout_count++;			// 4 from i2c_t3; timeout from call to status() (read)
-#else
-		case 4:
-			error.other_error_count++;		// i2c_t3 and Wire: from endTransmission() "other error"
-#endif
-			break;
-		case 2:								// i2c_t3 and Wire: from endTransmission()
-		case I2C_ADDR_NAK:					// 5 from i2c_t3
-			error.rcv_addr_nack_count++;
-			break;
-		case 3:								// i2c_t3 and Wire: from endTransmission()
-		case I2C_DATA_NAK:					// 6 from i2c_t3
-			error.rcv_data_nack_count++;
-			break;
-		case I2C_ARB_LOST:					// 7 from i2c_t3; arbitration lost from call to status() (read)
-			error.arbitration_lost_count++;
-			break;
-		case I2C_BUF_OVF:
-			error.buffer_overflow_count++;
-			break;
-		case I2C_SLAVE_TX:
-		case I2C_SLAVE_RX:
-			error.other_error_count++;		// 9 & 10 from i2c_t3; these are not errors, I think
-			break;
-		case WR_INCOMPLETE:					// 11; Wire.write failed to write all of the data to tx_buffer
-			error.incomplete_write_count++;
-			break;
-		case SILLY_PROGRAMMER:				// 12
-			error.silly_programmer_error++;
-			break;
-		default:
-			error.unknown_error_count++;
-			break;
-		}
-	}
-
-
 //---------------------------< S E T _ A D D R 1 6 >----------------------------------------------------------
 //
 // byte order is important.  In Teensy memory, a uint16_t is stored least-significant byte in the lower of two
@@ -179,7 +118,7 @@ uint8_t Systronix_M24C32::set_addr16 (uint16_t addr)
 	{
 	if (addr & (ADDRESS_MAX+1))
 		{
-		tally_transaction (SILLY_PROGRAMMER);
+		i2c_common.tally_transaction (SILLY_PROGRAMMER, &error);
 		return DENIED;										// memory address out of bounds
 		}
 
@@ -312,7 +251,7 @@ uint8_t Systronix_M24C32::byte_write (void)
 
 	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
 		{													// it didn't
-		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		i2c_common.tally_transaction (I2C_TIMEOUT, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -321,18 +260,18 @@ uint8_t Systronix_M24C32::byte_write (void)
 	control.bytes_written += _wire.write (control.wr_byte);			// add data byte to the tx buffer
 	if (3 != control.bytes_written)
 		{
-		tally_transaction (WR_INCOMPLETE);					// only here 0 is error value since we expected to write more than 0 bytes
+		i2c_common.tally_transaction (WR_INCOMPLETE, &error);					// only here 0 is error value since we expected to write more than 0 bytes
 		return FAIL;
 		}
 
 	ret_val = _wire.endTransmission();						// xmit memory address and data byte
 	if (SUCCESS != ret_val)
 		{
-		tally_transaction (ret_val);						// increment the appropriate counter
+		i2c_common.tally_transaction (ret_val, &error);						// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
-	tally_transaction (SUCCESS);
+	i2c_common.tally_transaction (SUCCESS, &error);
 	return SUCCESS;
 	}
 
@@ -400,7 +339,7 @@ uint8_t Systronix_M24C32::page_write (void)
 	
 	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
 		{													// it didn't
-		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		i2c_common.tally_transaction (I2C_TIMEOUT, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -409,19 +348,19 @@ uint8_t Systronix_M24C32::page_write (void)
 	control.bytes_written += _wire.write (control.wr_buf_ptr, control.rd_wr_len);	// copy source to wire tx buffer data
 	if (control.bytes_written < (2 + control.rd_wr_len))	// did we try to write too many bytes to the i2c_t3 tx buf?
 		{
-		tally_transaction (WR_INCOMPLETE);					// increment the appropriate counter
+		i2c_common.tally_transaction (WR_INCOMPLETE, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 		
 	ret_val = _wire.endTransmission();						// xmit memory address followed by data
 	if (SUCCESS != ret_val)
 		{
-		tally_transaction (ret_val);						// increment the appropriate counter
+		i2c_common.tally_transaction (ret_val, &error);						// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 	adv_addr16 ();											// advance our copy of the address
 
-	tally_transaction (SUCCESS);
+	i2c_common.tally_transaction (SUCCESS, &error);
 	return SUCCESS;
 	}
 
@@ -453,14 +392,14 @@ uint8_t Systronix_M24C32::current_address_read (void)
 	if (1 != control.bytes_received)						// if we got more than or less than 1 byte
 		{
 		ret_val = _wire.status();							// to get error value
-		tally_transaction (ret_val);						// increment the appropriate counter
+		i2c_common.tally_transaction (ret_val, &error);						// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
 	control.rd_byte = _wire.readByte();						// get the byte
 	inc_addr16 ();											// bump our copy of the address
 
-	tally_transaction (SUCCESS);
+	i2c_common.tally_transaction (SUCCESS, &error);
 	return SUCCESS;
 	}
 
@@ -484,7 +423,7 @@ uint8_t Systronix_M24C32::byte_read (void)
 
 	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
 		{													// it didn't
-		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		i2c_common.tally_transaction (I2C_TIMEOUT, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -492,7 +431,7 @@ uint8_t Systronix_M24C32::byte_read (void)
 	control.bytes_written = _wire.write (control.addr.as_array, 2);	// put the memory address in the tx buffer
 	if (2 != control.bytes_written)							// did we get correct number of bytes into the i2c_t3 tx buf?
 		{
-		tally_transaction (WR_INCOMPLETE);					// increment the appropriate counter
+		i2c_common.tally_transaction (WR_INCOMPLETE, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -500,7 +439,7 @@ uint8_t Systronix_M24C32::byte_read (void)
 	
 	if (SUCCESS != ret_val)
 		{
-		tally_transaction (ret_val);						// increment the appropriate counter
+		i2c_common.tally_transaction (ret_val, &error);						// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 	
@@ -574,7 +513,7 @@ uint8_t Systronix_M24C32::page_read (void)
 
 	if (SUCCESS != ping_eeprom_timed ())					// device should become available within the next 5mS
 		{													// it didn't
-		tally_transaction (I2C_TIMEOUT);					// increment the appropriate counter
+		i2c_common.tally_transaction (I2C_TIMEOUT, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -582,7 +521,7 @@ uint8_t Systronix_M24C32::page_read (void)
 	control.bytes_written = _wire.write (control.addr.as_array, 2);	// put the memory address in the tx buffer
 	if (2 != control.bytes_written)							// did we get correct number of bytes into the i2c_t3 tx buf?
 		{
-		tally_transaction (WR_INCOMPLETE);					// increment the appropriate counter
+		i2c_common.tally_transaction (WR_INCOMPLETE, &error);					// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -590,7 +529,7 @@ uint8_t Systronix_M24C32::page_read (void)
 
 	if (SUCCESS != ret_val)
 		{
-		tally_transaction (ret_val);						// increment the appropriate counter
+		i2c_common.tally_transaction (ret_val, &error);						// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -598,7 +537,7 @@ uint8_t Systronix_M24C32::page_read (void)
 	if (control.bytes_received != control.rd_wr_len)
 		{
 		ret_val = _wire.status();							// to get error value
-		tally_transaction (ret_val);						// increment the appropriate counter
+		i2c_common.tally_transaction (ret_val, &error);						// increment the appropriate counter
 		return FAIL;										// calling function decides what to do with the error
 		}
 
@@ -607,6 +546,6 @@ uint8_t Systronix_M24C32::page_read (void)
 
 	adv_addr16 ();											// advance our copy of the address
 
-	tally_transaction (SUCCESS);
+	i2c_common.tally_transaction (SUCCESS, &error);
 	return SUCCESS;
 	}
